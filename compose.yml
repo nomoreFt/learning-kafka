@@ -1,0 +1,67 @@
+services:                           # docker compose로 실행할 서비스들의 최상위 블록
+
+  kafka:                            # Kafka 브로커 컨테이너 정의
+    image: confluentinc/cp-kafka:latest   # Confluent에서 제공하는 Kafka 단일 이미지 (KRaft 모드 지원)
+    ports:
+      - "29092:29092"               # 호스트 29092 포트를 컨테이너 29092 포트와 연결 (외부에서 접속용)
+
+    environment:                    # Kafka 컨테이너 환경 변수 설정 (모두 KRaft 기반 설정)
+      KAFKA_NODE_ID: 1              # 이 노드의 ID (KRaft 클러스터 내에서 유일해야 함, 여기선 단일 노드이므로 1)
+
+      KAFKA_PROCESS_ROLES: 'broker,controller' # 이 프로세스가 수행할 역할: 브로커 + 컨트롤러(메타데이터 관리)
+
+      KAFKA_CONTROLLER_QUORUM_VOTERS: '1@kafka:29093'
+        # 컨트롤러 투표자 목록
+        # 형식: <nodeId>@<host>:<port>
+      # 단일 노드라서 nodeId 1이 kafka:29093 포트로 컨트롤러 역할 수행
+
+      KAFKA_LISTENERS: 'PLAINTEXT://kafka:9092,CONTROLLER://kafka:29093,PLAINTEXT_HOST://0.0.0.0:29092'
+        # 컨테이너 내부에서 바인딩할 리스너들
+        # - PLAINTEXT://kafka:9092       : 브로커용 내부 리스너 (다른 컨테이너에서 접근)
+        # - CONTROLLER://kafka:29093     : 컨트롤러 통신용 리스너
+      # - PLAINTEXT_HOST://0.0.0.0:29092: 호스트에서 접근할 수 있도록 0.0.0.0:29092로 바인딩
+
+      KAFKA_ADVERTISED_LISTENERS: 'PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092'
+        # 클라이언트에게 알려주는 접속 주소
+        # - 도커 네트워크 내부 컨테이너: PLAINTEXT://kafka:9092 사용
+      # - 로컬(호스트)에서 접속: PLAINTEXT_HOST://localhost:29092 사용
+
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: 'CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT'
+        # 리스너 이름별 보안 프로토콜 매핑
+      # 여기서는 모두 PLAINTEXT(암호화/인증 없음)로 설정
+
+      KAFKA_CONTROLLER_LISTENER_NAMES: 'CONTROLLER'
+      # 컨트롤러로 사용할 리스너 이름 지정 (위에서 정의한 CONTROLLER 리스너 사용)
+
+      KAFKA_INTER_BROKER_LISTENER_NAME: 'PLAINTEXT'
+      # 브로커 간 통신에 사용할 리스너 이름 (여기서는 PLAINTEXT 리스너 사용)
+
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+        # __consumer_offsets 토픽의 replication factor
+      # 단일 노드 클러스터라 1로 설정 (여러 노드면 최소 3 권장)
+
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+        # 트랜잭션 로그 토픽의 replication factor
+      # 역시 단일 노드라 1 (프로덕션에선 3 이상 권장)
+
+      CLUSTER_ID: 'ciWo7IWazngRchmPES6q5A=='
+        # KRaft 클러스터 ID (임의의 Base64 문자열, 클러스터 고유 식별자)
+      # 한 번 사용하면 바꾸면 안 됨 (바꾸면 새 클러스터로 인식)
+      KAFKA_LOG_DIRS: '/tmp/kraft-combined-logs'
+      # Kafka 로그 디렉터리 (토픽 데이터 및 KRaft 메타데이터 저장 위치)
+  kafka-ui:                          # Kafka UI(웹 기반 관리툴) 컨테이너 정의
+    image: provectuslabs/kafka-ui:latest
+    # Provectus에서 제공하는 Kafka-UI 이미지 (브로커 상태/토픽/메시지 등 조회용)
+
+    ports:
+      - "12345:12345"                  # 호스트 12345 포트를 컨테이너 12345 포트와 연결
+      # 브라우저에서 http://localhost:8080 으로 접속
+
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local   # UI에서 표시할 클러스터 이름 (원하는 이름으로 표시)
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+        # Kafka UI가 접속할 Kafka 브로커 주소
+      # docker-compose 네트워크 내부에서 kafka 서비스명을 사용하므로 kafka:9092
+
+    depends_on:
+      - kafka                        # kafka 컨테이너가 먼저 올라온 뒤에 kafka-ui가 기동되도록 의존 관계 설정
